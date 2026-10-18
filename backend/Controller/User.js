@@ -31,12 +31,20 @@ exports.sendOTP = async (req, res) => {
     await otpData.save();
 
     const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.EMAIL,
-        pass: process.env.EMAIL_PASSWORD,
-      },
-    });
+                          host: "smtp.gmail.com",
+                          port: 587,
+                          secure: false,
+                          requireTLS: true,
+
+                          auth: {
+                            user: process.env.EMAIL,
+                            pass: process.env.EMAIL_PASSWORD,
+                          },
+
+                          connectionTimeout: 15000,
+                          greetingTimeout: 15000,
+                          socketTimeout: 20000,
+                        });
 
     await transporter.sendMail({
       from: process.env.EMAIL,
