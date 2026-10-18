@@ -33,8 +33,7 @@ exports.sendOTP = async (req, res) => {
     const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 587,
-secure: false,   // STARTTLS
-requireTLS: true,
+
 family: 4,           // force IPv4
   auth: {
     user: process.env.EMAIL_USER,
