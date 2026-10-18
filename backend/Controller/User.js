@@ -32,9 +32,10 @@ exports.sendOTP = async (req, res) => {
 
     const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
-  family: 4,              // force IPv4
+  port: 587,
+secure: false,   // STARTTLS
+requireTLS: true,
+family: 4,           // force IPv4
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS, // Gmail App Password, not your normal password
