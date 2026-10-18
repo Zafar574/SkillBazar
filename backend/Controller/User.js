@@ -1,14 +1,21 @@
+
 const User = require("../Model/User");
 const OTP = require("../Model/OTP");
 
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
 
 // Send OTP
 exports.sendOTP = async (req, res) => {
   try {
     const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
 
     const existingUser = await User.findOne({ email });
 
@@ -19,51 +26,62 @@ exports.sendOTP = async (req, res) => {
       });
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = Math.floor(
+      100000 + Math.random() * 900000
+    ).toString();
 
-    await OTP.deleteMany({ email: email });
+    // Remove any previous OTP for this email
+    await OTP.deleteMany({ email });
 
+    // Save the new OTP
     const otpData = new OTP({
-      email: email,
-      otp: otp,
+      email,
+      otp,
     });
 
     await otpData.save();
 
-    const transporter = nodemailer.createTransport({
-                          host: "smtp.gmail.com",
-                          port: 587,
-                          secure: false,
-                          requireTLS: true,
+    // Send OTP using Resend HTTPS API
+    const response = await fetch(
+      "https://api.resend.com/emails",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: "SkillBazar <onboarding@resend.dev>",
+          to: [email],
+          subject: "SkillBazar OTP",
+          text: `Your SkillBazar OTP is ${otp}. It is valid for 5 minutes.`,
+        }),
+      }
+    );
 
-                          auth: {
-                            user: process.env.EMAIL,
-                            pass: process.env.EMAIL_PASSWORD,
-                          },
+    const result = await response.json();
 
-                          connectionTimeout: 15000,
-                          greetingTimeout: 15000,
-                          socketTimeout: 20000,
-                        });
+    if (!response.ok) {
+      console.error("Resend email error:", result);
 
-    await transporter.sendMail({
-      from: process.env.EMAIL,
+      // Remove the OTP if the email could not be sent
+      await OTP.deleteMany({ email });
 
-      to: email,
+      throw new Error(
+        result.message || "Failed to send OTP email"
+      );
+    }
 
-      subject: "SkillBazar OTP",
+    console.log("OTP email sent successfully:", email);
 
-      text: `Your SkillBazar OTP is ${otp}. It is valid for 5 minutes.`,
-    });
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "OTP sent successfully",
     });
   } catch (e) {
-    console.log(e.message);
+    console.error("OTP sending failed:", e.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "OTP sending failed",
       data: e.message,
@@ -77,8 +95,8 @@ exports.verifyOTP = async (req, res) => {
     const { name, email, password, role, otp } = req.body;
 
     const otpData = await OTP.findOne({
-      email: email,
-      otp: otp,
+      email,
+      otp,
     });
 
     if (!otpData) {
@@ -88,9 +106,7 @@ exports.verifyOTP = async (req, res) => {
       });
     }
 
-    const existingUser = await User.findOne({
-      email: email,
-    });
+    const existingUser = await User.findOne({ email });
 
     if (existingUser) {
       return res.status(400).json({
@@ -102,32 +118,26 @@ exports.verifyOTP = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = new User({
-      name: name,
-
-      email: email,
-
+      name,
+      email,
       password: hashedPassword,
-
-      role: role,
+      role,
     });
 
     const response = await user.save();
 
-    await OTP.deleteMany({
-      email: email,
-    });
+    // Delete OTP after successful registration
+    await OTP.deleteMany({ email });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-
       message: "User registered successfully",
-
       data: response,
     });
   } catch (e) {
-    console.log(e.message);
+    console.error("Registration failed:", e.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Registration failed",
       data: e.message,
@@ -140,9 +150,7 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({
-      email: email,
-    });
+    const user = await User.findOne({ email });
 
     if (!user) {
       return res.status(404).json({
@@ -151,7 +159,10 @@ exports.login = async (req, res) => {
       });
     }
 
-    const passwordMatch = await bcrypt.compare(password, user.password);
+    const passwordMatch = await bcrypt.compare(
+      password,
+      user.password
+    );
 
     if (!passwordMatch) {
       return res.status(401).json({
@@ -166,11 +177,14 @@ exports.login = async (req, res) => {
       role: user.role,
     };
 
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: "1d",
-    });
+    const token = jwt.sign(
+      payload,
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
 
-    const isProduction = process.env.NODE_ENV === "production";
+    const isProduction =
+      process.env.NODE_ENV === "production";
 
     const options = {
       httpOnly: true,
@@ -180,11 +194,9 @@ exports.login = async (req, res) => {
 
     res.cookie("token", token, options);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-
       message: "Login successful",
-
       data: {
         id: user._id,
         name: user.name,
@@ -193,9 +205,9 @@ exports.login = async (req, res) => {
       },
     });
   } catch (e) {
-    console.log(e.message);
+    console.error("Login failed:", e.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Login failed",
       data: e.message,
@@ -209,17 +221,20 @@ exports.logout = async (req, res) => {
     res.clearCookie("token", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      sameSite:
+        process.env.NODE_ENV === "production"
+          ? "none"
+          : "lax",
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Logout successful",
     });
   } catch (e) {
-    console.log(e.message);
+    console.error("Logout failed:", e.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Logout failed",
       data: e.message,
